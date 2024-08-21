@@ -2,6 +2,8 @@ var cacheName = 'egui-template-pwa';
 var filesToCache = [
   './',
   './index.html',
+  './pdfium.js',
+  './pdfium.wasm',
   './credit_card_billsplit.js',
   './credit_card_billsplit_bg.wasm',
 ];
