@@ -138,11 +138,14 @@
     <script>
         PDFiumModule().then(async pdfiumModule => {
             const {
-                initialize_pdfium_render
+                initialize_pdfium_render,
+                log_page_metrics_to_console
             } = wasmBindings;
 
             console.assert(initialize_pdfium_render(pdfiumModule, wasmBindings, false),
                 "Initialization of pdfium-render failed!");
+
+            log_page_metrics_to_console("https://raw.githubusercontent.com/ajrcarey/pdfium-render/master/test/annotations-test.pdf");
         });
 
         // We disable caching during development so that we always view the latest version.
