@@ -1,3 +1,9 @@
+use eframe::{Error, WebLogger};
+use log::{log, Level, LevelFilter};
+use pdfium_render::prelude::{PdfDocument, Pdfium, PdfiumError};
+use rfd::{AsyncFileDialog, FileHandle};
+use wasm_bindgen_futures::spawn_local;
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -77,6 +83,34 @@ impl eframe::App for TemplateApp {
             ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
             if ui.button("Increment").clicked() {
                 self.value += 1.0;
+            }
+
+            if ui.button("Choose file").clicked() {
+                //https://users.rust-lang.org/t/how-can-i-read-a-file-from-disk-by-filedialog-on-wasm/97868/2
+                let future = async {
+                    let file = AsyncFileDialog::new()
+                        .add_filter("pdf", &["pdf"])
+                        .set_directory("/")
+                        .pick_file()
+                        .await;
+                    match file {
+                        None => {}
+                        Some(f) => {
+                            let pdfium = Pdfium::default();
+                            let data = f.read().await;
+                            match pdfium.load_pdf_from_byte_vec(data, None) {
+                                Ok(d) => {
+                                    log!(Level::Info, "{}", d.pages().len());
+                                }
+                                Err(e) => {
+                                    log!(Level::Error, "{}", e.to_string());
+                                }
+                            };
+                        }
+                    }
+                };
+
+                async_std::task::block_on(future);
             }
 
             ui.separator();
