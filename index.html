@@ -135,20 +135,18 @@
 
     <!--Register Service Worker. this will cache the wasm / js scripts for offline use (for PWA functionality). -->
     <!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->
-    <script>
-        window.addEventListener('load', function () {
-            PDFiumModule().then(async pdfiumModule => {
-                const {
-                    initialize_pdfium_render,
-                    log_page_metrics_to_console
-                } = wasmBindings;
+    <script defer>
+        PDFiumModule().then(async pdfiumModule => {
+            const {
+                initialize_pdfium_render,
+                log_page_metrics_to_console
+            } = wasmBindings;
 
-                console.assert(initialize_pdfium_render(pdfiumModule, wasmBindings, false),
-                    "Initialization of pdfium-render failed!");
+            console.assert(initialize_pdfium_render(pdfiumModule, wasmBindings, false),
+                "Initialization of pdfium-render failed!");
 
-                //log_page_metrics_to_console("https://raw.githubusercontent.com/ajrcarey/pdfium-render/master/test/annotations-test.pdf");
-            });
-        })
+            //log_page_metrics_to_console("https://raw.githubusercontent.com/ajrcarey/pdfium-render/master/test/annotations-test.pdf");
+        });
 
         // We disable caching during development so that we always view the latest version.
         if ('serviceWorker' in navigator && window.location.hash !== "#dev") {
