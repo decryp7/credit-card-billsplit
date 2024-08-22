@@ -7,7 +7,7 @@
 
 <head>
     <!-- change this to your project name -->
-    <title>eframe template</title>
+    <title>Credit Card BillSplit</title>
 
     <script async data-trunk src="assets/pdfium.js"></script>
     <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
@@ -136,7 +136,8 @@
     <!--Register Service Worker. this will cache the wasm / js scripts for offline use (for PWA functionality). -->
     <!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->
     <script defer>
-        window.addEventListener('TrunkApplicationStarted', function (){
+        window.addEventListener('TrunkApplicationStarted', function (detail){
+            console.log(detail);
             PDFiumModule().then(async pdfiumModule => {
                 const {
                     initialize_pdfium_render,
