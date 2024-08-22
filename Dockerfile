@@ -6,7 +6,7 @@ WORKDIR /usr/src/credit-card-billsplit
 COPY . .
 
 RUN rustup target add wasm32-unknown-unknown
-RUN trunk build
+RUN trunk build --release
 
 
 FROM nginx:latest as prod
