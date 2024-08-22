@@ -136,8 +136,7 @@
     <!--Register Service Worker. this will cache the wasm / js scripts for offline use (for PWA functionality). -->
     <!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->
     <script defer>
-        window.addEventListener('TrunkApplicationStarted', function (detail){
-            console.log(detail);
+        window.addEventListener('TrunkApplicationStarted', function (event){
             PDFiumModule().then(async pdfiumModule => {
                 const {
                     initialize_pdfium_render,
