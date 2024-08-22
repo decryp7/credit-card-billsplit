@@ -5,7 +5,7 @@ RUN cargo install trunk
 WORKDIR /usr/src/credit-card-billsplit
 COPY . .
 
-RUN truck build
+RUN trunk build
 
 
 FROM busybox:1.35
