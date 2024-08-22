@@ -76,6 +76,11 @@ impl eframe::App for TemplateApp {
                                     match pdfium.load_pdf_from_byte_vec(data, None) {
                                         Ok(d) => {
                                             log!(Level::Info, "Pages: {}", d.pages().len());
+                                            d.pages().iter()
+                                                .enumerate()
+                                                .for_each(|(index, page)|{
+                                                    log!(Level::Info, "{}", page.text().unwrap().all());
+                                                });
                                         }
                                         Err(e) => {
                                             log!(Level::Error, "{}", e.to_string());
