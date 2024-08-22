@@ -1,6 +1,6 @@
 FROM rust:latest as builder
 
-RUN cargo install --locked trunk
+RUN cargo install trunk
 
 WORKDIR /usr/src/credit-card-billsplit
 COPY . .
