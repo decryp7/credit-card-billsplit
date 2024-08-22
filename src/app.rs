@@ -1,8 +1,10 @@
 use eframe::{Error, WebLogger};
 use log::{log, Level, LevelFilter};
-use pdfium_render::prelude::{PdfDocument, Pdfium, PdfiumError};
-use rfd::{AsyncFileDialog, FileHandle};
+use pdfium_render::prelude::{PdfDocument, PdfDocumentMetadataTagType, Pdfium, PdfiumError};
+use rfd::{AsyncFileDialog, AsyncMessageDialog, FileHandle, MessageButtons, MessageLevel};
 use wasm_bindgen_futures::spawn_local;
+use std::default::Default;
+use egui::{Layout, Margin, Vec2, Window};
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -34,7 +36,7 @@ impl TemplateApp {
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
         if let Some(storage) = cc.storage {
-            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+            return eframe::get_value::<TemplateApp>(storage, eframe::APP_KEY).unwrap_or_default();
         }
 
         Default::default()
@@ -54,90 +56,55 @@ impl eframe::App for TemplateApp {
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
-
             egui::menu::bar(ui, |ui| {
-                // NOTE: no File->Quit on web pages!
-                let is_web = cfg!(target_arch = "wasm32");
-                if !is_web {
-                    ui.menu_button("File", |ui| {
-                        if ui.button("Quit").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    });
-                    ui.add_space(16.0);
-                }
+                egui::widgets::global_dark_light_mode_switch(ui);
+                ui.separator();
+                ui.menu_button("File", |ui| {
+                    if ui.button("Open bill...").clicked() {
+                        //https://users.rust-lang.org/t/how-can-i-read-a-file-from-disk-by-filedialog-on-wasm/97868/2
+                        let future = async {
+                            let file = AsyncFileDialog::new()
+                                .add_filter("pdf", &["pdf"])
+                                .set_directory("/")
+                                .pick_file()
+                                .await;
+                            match file {
+                                None => {}
+                                Some(f) => {
+                                    let pdfium = Pdfium::default();
+                                    let data = f.read().await;
+                                    match pdfium.load_pdf_from_byte_vec(data, None) {
+                                        Ok(d) => {
+                                            log!(Level::Info, "Pages: {}", d.pages().len());
+                                        }
+                                        Err(e) => {
+                                            log!(Level::Error, "{}", e.to_string());
+                                        }
+                                    };
+                                }
+                            }
+                        };
 
-                egui::widgets::global_dark_light_mode_buttons(ui);
+                        async_std::task::block_on(future);
+                    }
+                });
             });
         });
+
+        egui::TopBottomPanel::bottom("bottom-panel")
+            .show(ctx, |ui|{
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label("Developed by ");
+                    ui.hyperlink_to("decryp7", "https://decryptology.net");
+                    ui.label(".");
+                    ui.separator();
+                    egui::warn_if_debug_build(ui);
+                });
+            });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-            ui.heading("eframe template");
 
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(&mut self.label);
-            });
-
-            ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                self.value += 1.0;
-            }
-
-            if ui.button("Choose file").clicked() {
-                //https://users.rust-lang.org/t/how-can-i-read-a-file-from-disk-by-filedialog-on-wasm/97868/2
-                let future = async {
-                    let file = AsyncFileDialog::new()
-                        .add_filter("pdf", &["pdf"])
-                        .set_directory("/")
-                        .pick_file()
-                        .await;
-                    match file {
-                        None => {}
-                        Some(f) => {
-                            let pdfium = Pdfium::default();
-                            let data = f.read().await;
-                            match pdfium.load_pdf_from_byte_vec(data, None) {
-                                Ok(d) => {
-                                    log!(Level::Info, "{}", d.pages().len());
-                                }
-                                Err(e) => {
-                                    log!(Level::Error, "{}", e.to_string());
-                                }
-                            };
-                        }
-                    }
-                };
-
-                async_std::task::block_on(future);
-            }
-
-            ui.separator();
-
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/main/",
-                "Source code."
-            ));
-
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                powered_by_egui_and_eframe(ui);
-                egui::warn_if_debug_build(ui);
-            });
         });
     }
-}
-
-fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        ui.label("Powered by ");
-        ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-        ui.label(" and ");
-        ui.hyperlink_to(
-            "eframe",
-            "https://github.com/emilk/egui/tree/master/crates/eframe",
-        );
-        ui.label(".");
-    });
 }

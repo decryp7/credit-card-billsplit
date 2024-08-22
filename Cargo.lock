@@ -1035,6 +1035,7 @@ dependencies = [
 name = "credit_card_billsplit"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-std",
  "eframe",
  "egui",
