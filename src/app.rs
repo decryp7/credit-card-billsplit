@@ -181,7 +181,7 @@ impl eframe::App for BillSplitApp {
                         for transaction in &*t {
                             total += transaction.amount;
                         }
-                        ui.label(RichText::new(format!("Total: ${:2}", total))
+                        ui.label(RichText::new(format!("Total: ${:.2}", total))
                             .strong()
                             .size(20.0));
                     });
