@@ -106,6 +106,10 @@ impl eframe::App for BillSplitApp {
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
 
+    fn auto_save_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(1)
+    }
+
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
