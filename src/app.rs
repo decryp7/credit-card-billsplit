@@ -102,7 +102,7 @@ impl BillSplitApp {
                             ui.label(&transaction.description);
                         });
                         row.col(|ui|{
-                            ui.label(&transaction.amount.to_string());
+                            ui.label(format!("{:.2}",&transaction.amount));
                         });
                         row.col(|ui|{
                             ui.label(&transaction.card);
