@@ -227,10 +227,10 @@ impl eframe::App for BillSplitApp {
                         let mut joint_total = 0f64;
                         for transaction in &*t.iter()
                             .filter(|t| t.tags.contains(&JOINT_TAG.to_string())).collect::<Vec<&Transaction>>() {
-                            personal_total += transaction.amount;
+                            joint_total += transaction.amount;
                         }
                         ui.label("Joint: ");
-                        ui.label(RichText::new(format!("${:.2}", personal_total))
+                        ui.label(RichText::new(format!("${:.2}", joint_total))
                             .strong()
                             .size(20.0));
                         ui.separator();
