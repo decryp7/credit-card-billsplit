@@ -1,14 +1,9 @@
-use eframe::{Error, WebLogger};
-use log::{log, Level, LevelFilter};
-use pdfium_render::prelude::{PdfDocument, PdfDocumentMetadataTagType, Pdfium, PdfiumError};
 use rfd::{AsyncFileDialog, AsyncMessageDialog, FileHandle, MessageButtons, MessageLevel};
-use wasm_bindgen_futures::spawn_local;
 use std::default::Default;
 use std::sync::{Arc, Mutex};
-use egui::{Layout, Margin, RichText, Vec2, Window};
-use egui::UiKind::ScrollArea;
+use egui::{Button, Color32, Layout, Margin, RichText, Vec2, Window};
 use itertools::Itertools;
-use crate::bill_reader::{BillReader, CreditCardBillReader, Transaction};
+use crate::bill_reader::{BillReader, CreditCardBillReader, Transaction, JOINT_TAG, PERSONAL_TAG};
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -38,6 +33,26 @@ impl BillSplitApp {
         }
 
         Default::default()
+    }
+
+    fn build_button(ui: &mut egui::Ui, transaction: &mut Transaction, content: &str){
+        let mut button_text = RichText::new(content);
+        if transaction.tags.contains(&content.to_string()) {
+            button_text = button_text.strong().underline();
+        }
+        let button = Button::new(button_text);
+
+        if ui.add(button).clicked() {
+            match transaction.tags.iter().position(|t| {t == &content.to_string()}) {
+                None => {
+                    transaction.tags.clear();
+                    transaction.tags.push(content.to_string());
+                }
+                Some(s) => {
+                    transaction.tags.remove(s);
+                }
+            }
+        };
     }
 
     fn build_table(&mut self, ui: &mut egui::Ui) {
@@ -76,8 +91,9 @@ impl BillSplitApp {
                 });
             })
             .body(|mut body|{
-                let t = self.transactions.lock().unwrap();
-                for transaction in &*t {
+                let mut t = self.transactions.lock().unwrap();
+                let mut t = &mut *t;
+                for mut transaction in t {
                     body.row(18.0, |mut row |{
                        row.col(|ui|{
                           ui.label(&transaction.date);
@@ -92,7 +108,9 @@ impl BillSplitApp {
                             ui.label(&transaction.card);
                         });
                         row.col(|ui|{
-                            ui.label(&transaction.tags.join(", "));
+                            //ui.label(&transaction.tags.join(", "));
+                            Self::build_button(ui, transaction, PERSONAL_TAG);
+                            Self::build_button(ui, transaction, JOINT_TAG);
                         });
                     });
                 }
@@ -189,9 +207,34 @@ impl eframe::App for BillSplitApp {
                         for transaction in &*t {
                             total += transaction.amount;
                         }
-                        ui.label(RichText::new(format!("Total: ${:.2}", total))
+                        ui.label("Total: ");
+                        ui.label(RichText::new(format!("${:.2}", total))
                             .strong()
                             .size(20.0));
+                        ui.separator();
+
+                        let mut personal_total = 0f64;
+                        for transaction in &*t.iter()
+                            .filter(|t| t.tags.contains(&PERSONAL_TAG.to_string())).collect::<Vec<&Transaction>>() {
+                            personal_total += transaction.amount;
+                        }
+                        ui.label("Personal: ");
+                        ui.label(RichText::new(format!("${:.2}", personal_total))
+                            .strong()
+                            .size(20.0));
+                        ui.separator();
+
+                        let mut joint_total = 0f64;
+                        for transaction in &*t.iter()
+                            .filter(|t| t.tags.contains(&JOINT_TAG.to_string())).collect::<Vec<&Transaction>>() {
+                            personal_total += transaction.amount;
+                        }
+                        ui.label("Joint: ");
+                        ui.label(RichText::new(format!("${:.2}", personal_total))
+                            .strong()
+                            .size(20.0));
+                        ui.separator();
+
                     });
                     self.build_table(ui);
             });
