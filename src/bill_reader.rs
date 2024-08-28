@@ -53,7 +53,7 @@ impl CreditCardBillReader {
                 .case_insensitive(true)
                 .build().unwrap(),
             //05 JUN TAOBAO.COM Singapore SG (3.85)
-            transaction_regex: RegexBuilder::new(r"(\d{2} [a-z]{3}) (.*) (\(?\d*\.\d{2}\)?)")
+            transaction_regex: RegexBuilder::new(r"(\d{2} [a-z]{3}) (.*) (\(?[0-9,]*\.\d{2}\)?)")
                 .case_insensitive(true)
                 .build().unwrap()
         }
@@ -87,6 +87,10 @@ impl BillReader for CreditCardBillReader {
                                         continue;
                                     }
 
+                                    if card == "" {
+                                        continue;
+                                    }
+
                                     let transaction_captures = self.transaction_regex.captures(l)
                                         .and_then(|c|{
                                             //log!(Level::Info, "{:?}", c);
@@ -97,9 +101,9 @@ impl BillReader for CreditCardBillReader {
                                                     amount_str.ends_with(")") {
                                                     amount_str = amount_str.replace("(", "");
                                                     amount_str = amount_str.replace(")", "");
-                                                    amount = -(amount_str.parse::<f64>().unwrap());
+                                                    amount = -(amount_str.replace(",", "").parse::<f64>().unwrap());
                                                 }else{
-                                                    amount = amount_str.parse::<f64>().unwrap();
+                                                    amount = amount_str.replace(",", "").parse::<f64>().unwrap();
                                                 }
 
                                                 let tags = vec![if card.ends_with("5136") { PERSONAL_TAG.to_string() } else { JOINT_TAG.to_string()}];
@@ -117,8 +121,10 @@ impl BillReader for CreditCardBillReader {
                                         });
                                     if transaction_captures.is_some() {
                                         transactions.push(transaction_captures.unwrap());
+                                        continue;
                                     }
 
+                                    log!(Level::Info, "{}", l);
                                 }
                             }
                             Err(_) => {}
