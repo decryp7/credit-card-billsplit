@@ -132,7 +132,6 @@ impl eframe::App for BillSplitApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
-
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
@@ -142,6 +141,7 @@ impl eframe::App for BillSplitApp {
                     if ui.button("Open bill...").clicked() {
                         //https://users.rust-lang.org/t/how-can-i-read-a-file-from-disk-by-filedialog-on-wasm/97868/2
                         let transactions = Arc::clone(&self.transactions);
+                        let c = ctx.clone();
                         let future = async move {
                             let file = AsyncFileDialog::new()
                                 .add_filter("pdf", &["pdf"])
@@ -169,6 +169,7 @@ impl eframe::App for BillSplitApp {
                                     for transaction in transactions_results {
                                         t.push(transaction);
                                     }
+                                    c.request_repaint();
                                 }
                             }
                         };
