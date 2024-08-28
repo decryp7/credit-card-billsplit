@@ -5,7 +5,7 @@ use rfd::{AsyncFileDialog, AsyncMessageDialog, FileHandle, MessageButtons, Messa
 use wasm_bindgen_futures::spawn_local;
 use std::default::Default;
 use std::sync::{Arc, Mutex};
-use egui::{Layout, Margin, Vec2, Window};
+use egui::{Layout, Margin, RichText, Vec2, Window};
 use egui::UiKind::ScrollArea;
 use itertools::Itertools;
 use crate::bill_reader::{BillReader, CreditCardBillReader, Transaction};
@@ -38,6 +38,65 @@ impl BillSplitApp {
         }
 
         Default::default()
+    }
+
+    fn build_table(&mut self, ui: &mut egui::Ui) {
+        use egui_extras::{Column, TableBuilder};
+
+        let available_height = ui.available_height();
+        let mut table = TableBuilder::new(ui)
+            .striped(true)
+            .resizable(true)
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(Column::auto())
+            .column(Column::auto())
+            .column(Column::auto())
+            .column(Column::auto())
+            .column(Column::remainder())
+            .max_scroll_height(0.0)
+            .max_scroll_height(available_height)
+            .sense(egui::Sense::click());
+
+        table
+            .header(20.0, |mut header| {
+                header.col(|ui|{
+                   ui.strong("Date");
+                });
+                header.col(|ui|{
+                    ui.strong("Description");
+                });
+                header.col(|ui|{
+                    ui.strong("Amount (SGD)");
+                });
+                header.col(|ui|{
+                    ui.strong("Card");
+                });
+                header.col(|ui|{
+                    ui.strong("Tags");
+                });
+            })
+            .body(|mut body|{
+                let t = self.transactions.lock().unwrap();
+                for transaction in &*t {
+                    body.row(18.0, |mut row |{
+                       row.col(|ui|{
+                          ui.label(&transaction.date);
+                       });
+                        row.col(|ui|{
+                            ui.label(&transaction.description);
+                        });
+                        row.col(|ui|{
+                            ui.label(&transaction.amount.to_string());
+                        });
+                        row.col(|ui|{
+                            ui.label(&transaction.card);
+                        });
+                        row.col(|ui|{
+                            ui.label(&transaction.tags.join(", "));
+                        });
+                    });
+                }
+            });
     }
 }
 
@@ -116,11 +175,17 @@ impl eframe::App for BillSplitApp {
             egui::ScrollArea::both()
                 .auto_shrink([false, false])
                 .show(ui, |ui|{
-                let t = self.transactions.lock().unwrap();
-                // for transaction in &*t {
-                //     log!(Level::Info, "{}", transaction);
-                // }
-                ui.label(&*t.iter().clone().join("\n"));
+                    ui.horizontal(|ui|{
+                        let t = self.transactions.lock().unwrap();
+                        let mut total = 0f64;
+                        for transaction in &*t {
+                            total += transaction.amount;
+                        }
+                        ui.label(RichText::new(format!("Total: ${}", total))
+                            .strong()
+                            .size(20.0));
+                    });
+                    self.build_table(ui);
             });
         });
     }
