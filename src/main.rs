@@ -122,7 +122,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "eframe template",
         native_options,
-        Box::new(|cc| Ok(Box::new(credit_card_billsplit::TemplateApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(credit_card_billsplit::BillSplitApp::new(cc)))),
     )
 }
 
@@ -139,7 +139,7 @@ fn main() {
             .start(
                 "the_canvas_id",
                 web_options,
-                Box::new(|cc| Ok(Box::new(credit_card_billsplit::TemplateApp::new(cc)))),
+                Box::new(|cc| Ok(Box::new(credit_card_billsplit::BillSplitApp::new(cc)))),
             )
             .await;
 

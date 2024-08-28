@@ -3,4 +3,4 @@
 mod app;
 mod bill_reader;
 
-pub use app::TemplateApp;
+pub use app::BillSplitApp;
