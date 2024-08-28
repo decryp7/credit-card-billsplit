@@ -106,6 +106,8 @@ impl eframe::App for BillSplitApp {
                     ui.hyperlink_to("decryp7", "https://decryptology.net");
                     ui.label(".");
                     ui.separator();
+                    ui.hyperlink_to("(source code)", "https://dev.decryptology.net/decryp7/credit-card-billsplit");
+                    ui.separator();
                     egui::warn_if_debug_build(ui);
                 });
             });
