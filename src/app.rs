@@ -113,7 +113,9 @@ impl eframe::App for BillSplitApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::both().show(ui, |ui|{
+            egui::ScrollArea::both()
+                .auto_shrink([false, false])
+                .show(ui, |ui|{
                 let t = self.transactions.lock().unwrap();
                 // for transaction in &*t {
                 //     log!(Level::Info, "{}", transaction);
