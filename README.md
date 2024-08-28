@@ -7,7 +7,7 @@ Data is saved locally in browser local storage ONLY, it does not go anywhere els
 
 Developed in rust with [egui](https://github.com/emilk/egui) and [pdfium-render](https://github.com/ajrcarey/pdfium-render).
 
-You can access it [here](https://credit-card-billsplit.decryptology.net/)
+You can access it [here](https://credit-card-billsplit.decryptology.net/).
 
 ### Screenshots
 ![dark](screenshots/screenshot.jpeg) 
