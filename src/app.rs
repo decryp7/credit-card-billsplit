@@ -4,30 +4,28 @@ use pdfium_render::prelude::{PdfDocument, PdfDocumentMetadataTagType, Pdfium, Pd
 use rfd::{AsyncFileDialog, AsyncMessageDialog, FileHandle, MessageButtons, MessageLevel};
 use wasm_bindgen_futures::spawn_local;
 use std::default::Default;
+use std::sync::{Arc, Mutex};
 use egui::{Layout, Margin, Vec2, Window};
+use egui::UiKind::ScrollArea;
+use itertools::Itertools;
+use crate::bill_reader::{BillReader, CreditCardBillReader, Transaction};
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
-pub struct TemplateApp {
-    // Example stuff:
-    label: String,
-
-    #[serde(skip)] // This how you opt-out of serialization of a field
-    value: f32,
+pub struct BillSplitApp {
+    transactions: Arc<Mutex<Vec<Transaction>>>
 }
 
-impl Default for TemplateApp {
+impl Default for BillSplitApp {
     fn default() -> Self {
         Self {
-            // Example stuff:
-            label: "Hello World!".to_owned(),
-            value: 2.7,
+            transactions: Arc::new(Mutex::new(Vec::<Transaction>::new()))
         }
     }
 }
 
-impl TemplateApp {
+impl BillSplitApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
@@ -36,15 +34,15 @@ impl TemplateApp {
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
         if let Some(storage) = cc.storage {
-            return eframe::get_value::<TemplateApp>(storage, eframe::APP_KEY).unwrap_or_default();
+            return eframe::get_value::<BillSplitApp>(storage, eframe::APP_KEY).unwrap_or_default();
         }
 
         Default::default()
     }
 }
 
-impl eframe::App for TemplateApp {
-    /// Called by the frame work to save state before shutdown.
+impl eframe::App for BillSplitApp {
+    /// Called by the framework to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
@@ -62,7 +60,8 @@ impl eframe::App for TemplateApp {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open bill...").clicked() {
                         //https://users.rust-lang.org/t/how-can-i-read-a-file-from-disk-by-filedialog-on-wasm/97868/2
-                        let future = async {
+                        let transactions = Arc::clone(&self.transactions);
+                        let future = async move {
                             let file = AsyncFileDialog::new()
                                 .add_filter("pdf", &["pdf"])
                                 .set_directory("/")
@@ -71,21 +70,24 @@ impl eframe::App for TemplateApp {
                             match file {
                                 None => {}
                                 Some(f) => {
-                                    let pdfium = Pdfium::default();
+                                    let bill_reader = CreditCardBillReader::default();
                                     let data = f.read().await;
-                                    match pdfium.load_pdf_from_byte_vec(data, None) {
-                                        Ok(d) => {
-                                            log!(Level::Info, "Pages: {}", d.pages().len());
-                                            d.pages().iter()
-                                                .enumerate()
-                                                .for_each(|(index, page)|{
-                                                    log!(Level::Info, "{}", page.text().unwrap().all());
-                                                });
-                                        }
-                                        Err(e) => {
-                                            log!(Level::Error, "{}", e.to_string());
-                                        }
-                                    };
+                                    let transactions_results = bill_reader.read(data);
+                                    // log!(Level::Info, "Transactions count: {}", transactions.len());
+                                    // let mut total  = 0.0f64;
+                                    // for transaction in transactions {
+                                    //     log!(Level::Info, "{}", transaction);
+                                    //     total += transaction.amount;
+                                    // }
+                                    // log!(Level::Info, "Total: ${:.2}", total);
+                                    // for transaction in transactions {
+                                    //     self.transactions.push(transaction);
+                                    // }
+                                    let mut t = transactions.lock().unwrap();
+                                    t.clear();
+                                    for transaction in transactions_results {
+                                        t.push(transaction);
+                                    }
                                 }
                             }
                         };
@@ -109,7 +111,13 @@ impl eframe::App for TemplateApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-
+            egui::ScrollArea::both().show(ui, |ui|{
+                let t = self.transactions.lock().unwrap();
+                // for transaction in &*t {
+                //     log!(Level::Info, "{}", transaction);
+                // }
+                ui.label(&*t.iter().clone().join("\n"));
+            });
         });
     }
 }
