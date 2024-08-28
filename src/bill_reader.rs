@@ -5,6 +5,9 @@ use log::{log, Level};
 use pdfium_render::prelude::{PdfPageText, Pdfium, PdfiumError};
 use regex::{Regex, RegexBuilder};
 
+pub const PERSONAL_TAG: &str = r"Personal";
+pub const JOINT_TAG: &str = r"Joint";
+
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct Transaction {
     pub date: String,
@@ -99,12 +102,14 @@ impl BillReader for CreditCardBillReader {
                                                     amount = amount_str.parse::<f64>().unwrap();
                                                 }
 
+                                                let tags = vec![if card.ends_with("5136") { PERSONAL_TAG.to_string() } else { JOINT_TAG.to_string()}];
+
                                                 let transaction = Transaction::new(
                                                     c.index(1).parse().unwrap(),
                                                     c.index(2).parse().unwrap(),
                                                     amount,
                                                     card.clone(),
-                                                    Vec::<String>::new());
+                                                    tags);
                                                 //log!(Level::Info, "{:?}", transaction);
                                                 return Some(transaction)
                                             }
