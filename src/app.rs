@@ -171,10 +171,10 @@ impl eframe::App for BillSplitApp {
                                     }
                                 }
                             }
-                            true
                         };
 
                         async_std::task::block_on(future);
+                        ctx.request_repaint_after_secs(1f32);
                         ui.close_menu();
                     }
                 });
@@ -203,6 +203,13 @@ impl eframe::App for BillSplitApp {
                 .show(ui, |ui|{
                     ui.horizontal(|ui|{
                         let t = self.transactions.lock().unwrap();
+
+                        ui.label("Transactions: ");
+                        ui.label(RichText::new(format!("{}", t.len()))
+                            .strong()
+                            .size(20.0));
+                        ui.separator();
+
                         let mut total = 0f64;
                         for transaction in &*t {
                             total += transaction.amount;
