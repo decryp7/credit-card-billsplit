@@ -164,10 +164,12 @@ impl eframe::App for BillSplitApp {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.label("Developed by ");
-                    ui.hyperlink_to("decryp7", "https://decryptology.net");
+                    ui.add(egui::Hyperlink::from_label_and_url("decryp7", "https://decryptology.net")
+                        .open_in_new_tab(true));
                     ui.label(".");
                     ui.separator();
-                    ui.hyperlink_to("(source code)", "https://dev.decryptology.net/decryp7/credit-card-billsplit");
+                    ui.add(egui::Hyperlink::from_label_and_url("(source code)", "https://dev.decryptology.net/decryp7/credit-card-billsplit")
+                        .open_in_new_tab(true));
                     ui.separator();
                     egui::warn_if_debug_build(ui);
                 });
