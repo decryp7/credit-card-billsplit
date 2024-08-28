@@ -149,9 +149,11 @@ impl eframe::App for BillSplitApp {
                                     }
                                 }
                             }
+                            true
                         };
 
                         async_std::task::block_on(future);
+                        ui.close_menu();
                     }
                 });
             });
