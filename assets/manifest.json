@@ -1,6 +1,6 @@
 {
-  "name": "egui Template PWA",
-  "short_name": "egui-template-pwa",
+  "name": "Credit Card Billsplit",
+  "short_name": "credit-card-billsplit",
   "icons": [
     {
       "src": "./icon-256.png",
