@@ -48,11 +48,11 @@ impl CreditCardBillReader {
     pub fn default() -> Self {
         Self {
             pdf_reader: Pdfium::default(),
-            //CITI PREMIERMILES CARD 4*** **** **** 5136 - TEO KOK YONG
+            //**** ************ CARD **** **** **** **** - *** *** ****
             card_regex: RegexBuilder::new(r".* CARD (\d{4} \d{4} \d{4} \d{4}) - .*")
                 .case_insensitive(true)
                 .build().unwrap(),
-            //05 JUN TAOBAO.COM Singapore SG (3.85)
+            //05 JUN ********** Singapore SG (3.85)
             transaction_regex: RegexBuilder::new(r"(\d{2} [a-z]{3}) (.*) (\(?[0-9,]*\.\d{2}\)?)")
                 .case_insensitive(true)
                 .build().unwrap()
