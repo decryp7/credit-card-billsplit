@@ -102,7 +102,12 @@ impl BillSplitApp {
                             ui.label(&transaction.description);
                         });
                         row.col(|ui|{
-                            ui.label(format!("{:.2}",&transaction.amount));
+                            if (*&transaction.amount/10f64).round() * 10f64 >= 50f64 {
+                                ui.label(RichText::new(format!("{:.2}", &transaction.amount))
+                                             .strong());
+                            }else {
+                                ui.label(format!("{:.2}", &transaction.amount));
+                            }
                         });
                         row.col(|ui|{
                             ui.label(&transaction.card);
