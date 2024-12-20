@@ -9,7 +9,12 @@
 
 name: Publish Docker image
 
-on: [push]
+on:
+  push:
+    branches:
+      - '**'
+  schedule:
+    - cron: '0 23 * * 5'
 
 jobs:
   push_to_registry:
