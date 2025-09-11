@@ -106,7 +106,7 @@ impl BillReader for CreditCardBillReader {
                                                     amount = amount_str.replace(",", "").parse::<f64>().unwrap();
                                                 }
 
-                                                let tags = vec![if card.ends_with("5136") { PERSONAL_TAG.to_string() } else { JOINT_TAG.to_string()}];
+                                                let tags = vec![if card.ends_with("5481") { PERSONAL_TAG.to_string() } else { JOINT_TAG.to_string()}];
 
                                                 let transaction = Transaction::new(
                                                     c.index(1).parse().unwrap(),
