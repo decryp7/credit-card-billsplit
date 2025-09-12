@@ -48,8 +48,8 @@ impl CreditCardBillReader {
     pub fn default() -> Self {
         Self {
             pdf_reader: Pdfium::default(),
-            //**** ************ CARD **** **** **** **** - *** *** ****
-            card_regex: RegexBuilder::new(r".* CARD (\d{4} \d{4} \d{4} \d{4}) - .*")
+            //CITI PREMIERMILES WORLD MASTER **** **** **** **** - *** *** ****
+            card_regex: RegexBuilder::new(r".* (\d{4} \d{4} \d{4} \d{4}) - .*")
                 .case_insensitive(true)
                 .build().unwrap(),
             //05 JUN ********** Singapore SG (3.85)
@@ -79,7 +79,7 @@ impl BillReader for CreditCardBillReader {
                                             //log!(Level::Info, "{:?}", c);
                                             if c.len() == 2 {
                                                 card = c.index(1).parse().unwrap();
-                                                //log!(Level::Info, "{}", card);
+                                                log!(Level::Info, "{}", card);
                                             }
                                             Some(true)
                                         });
@@ -114,7 +114,7 @@ impl BillReader for CreditCardBillReader {
                                                     amount,
                                                     card.clone(),
                                                     tags);
-                                                //log!(Level::Info, "{:?}", transaction);
+                                                log!(Level::Info, "{}", transaction);
                                                 return Some(transaction)
                                             }
                                             None
@@ -124,7 +124,7 @@ impl BillReader for CreditCardBillReader {
                                         continue;
                                     }
 
-                                    log!(Level::Info, "{}", l);
+                                    //log!(Level::Info, "{}", l);
                                 }
                             }
                             Err(_) => {}
