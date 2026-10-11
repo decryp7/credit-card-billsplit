@@ -2,5 +2,7 @@
 
 mod app;
 mod bill_reader;
+mod merchant;
+mod theme;
 
 pub use app::BillSplitApp;

@@ -29,8 +29,7 @@
 
     <link rel="manifest" href="assets/manifest.json">
     <link rel="apple-touch-icon" href="assets/icon_ios_touch_192.png">
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="white">
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#404040">
+    <meta name="theme-color" content="#07080d">
 
     <style>
         html {
@@ -39,17 +38,8 @@
         }
 
         body {
-            /* Light mode background color for what is not covered by the egui canvas,
-            or where the egui canvas is translucent. */
-            background: #909090;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            body {
-                /* Dark mode background color for what is not covered by the egui canvas,
-                or where the egui canvas is translucent. */
-                background: #404040;
-            }
+            /* Matches the app's background so nothing flashes while it loads. */
+            background: #07080d;
         }
 
         /* Allow canvas to fill entire web page: */
@@ -82,9 +72,11 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            color: #f0f0f0;
-            font-size: 24px;
-            font-family: Ubuntu-Light, Helvetica, sans-serif;
+            color: #e2b35c;
+            font-size: 10.5px;
+            letter-spacing: 0.34em;
+            text-transform: uppercase;
+            font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
             text-align: center;
         }
 
@@ -103,8 +95,8 @@
             height: 24px;
             margin: 0px;
             border-radius: 50%;
-            border: 3px solid #fff;
-            border-color: #fff transparent #fff transparent;
+            border: 2px solid #e2b35c;
+            border-color: #e2b35c transparent #e2b35c transparent;
             animation: lds-dual-ring 1.2s linear infinite;
         }
 
@@ -127,7 +119,7 @@
 
     <!-- the loading spinner will be removed in main.rs -->
     <div class="centered" id="loading_text">
-        <p style="font-size:16px">
+        <p>
             Loading…
         </p>
         <div class="lds-dual-ring"></div>

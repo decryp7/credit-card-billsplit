@@ -1,9 +1,11 @@
 use std::sync::{Arc, Mutex};
 
-use egui::{Align, Color32, Key, KeyboardShortcut, Layout, Modifiers, RichText};
+use egui::{Align, Color32, CornerRadius, Key, KeyboardShortcut, Layout, Modifiers, RichText, Stroke};
 use egui_extras::{Column, TableBuilder};
 
 use crate::bill_reader::{last_four, BillReader, CreditCardBillReader, Transaction};
+use crate::merchant::{self, Category, Merchant};
+use crate::theme;
 
 const OPEN_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
 /// Amounts from this value onwards are highlighted in the table.
@@ -29,6 +31,12 @@ pub struct BillSplitApp {
     /// Text typed in the filter box; only matching transactions are shown.
     filter: String,
 
+    /// When set, only transactions in this category are shown.
+    #[serde(skip)]
+    category: Option<Category>,
+    /// Merchant worked out from each transaction's description, in the same order.
+    #[serde(skip)]
+    merchants: Vec<Merchant>,
     #[serde(skip)]
     inbox: Inbox,
     /// True while a statement is being read.
@@ -45,6 +53,8 @@ impl Default for BillSplitApp {
             transactions: Vec::new(),
             file_name: None,
             filter: String::new(),
+            category: None,
+            merchants: Vec::new(),
             inbox: Arc::new(Mutex::new(None)),
             loading: false,
             error: None,
@@ -55,6 +65,8 @@ impl Default for BillSplitApp {
 impl BillSplitApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        theme::apply(&cc.egui_ctx);
+
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
         if let Some(storage) = cc.storage {
@@ -170,8 +182,10 @@ impl BillSplitApp {
             }
             Ok(transactions) => {
                 self.transactions = transactions;
+                self.merchants.clear();
                 self.file_name = Some(loaded.file_name);
                 self.filter.clear();
+                self.category = None;
                 self.error = None;
             }
             Err(e) => self.error = Some(e),
@@ -188,25 +202,50 @@ impl BillSplitApp {
         }
     }
 
+    /// Identifies the merchant of every transaction, unless already done for this statement.
+    fn identify_merchants(&mut self) {
+        if self.merchants.len() != self.transactions.len() {
+            self.merchants = self.transactions.iter().map(|t| merchant::identify(&t.description)).collect();
+        }
+    }
+
+    /// Indices of the transactions that pass the filter box and the category filter.
+    fn visible(&self) -> Vec<usize> {
+        (0..self.transactions.len())
+            .filter(|&i| self.category.is_none_or(|c| self.merchants[i].category == c))
+            .filter(|&i| matches(&self.filter, &self.transactions[i], &self.merchants[i]))
+            .collect()
+    }
+
     // ----------------------------------------------------------------------------
     // UI
 
-    fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                let open = egui::Button::new("Open statement…")
-                    .shortcut_text(ui.ctx().format_shortcut(&OPEN_SHORTCUT));
-                if ui.add(open).clicked() {
+    /// Site name and app title on the left, statement actions on the right.
+    fn header(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.add(egui::Hyperlink::from_label_and_url(theme::eyebrow("decryptology.net"), "https://decryptology.net")
+                    .open_in_new_tab(true));
+                ui.label(theme::display("Credit Card BillSplit", 28.0));
+            });
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if self.transactions.is_empty() {
+                    return;
+                }
+                let shortcut = ui.ctx().format_shortcut(&OPEN_SHORTCUT);
+                if ui.add_enabled(!self.loading, theme::primary_button("Open statement…"))
+                    .on_hover_text(format!("Open another statement ({shortcut})"))
+                    .clicked()
+                {
                     self.open_file_dialog(ui.ctx());
                 }
-                if ui.add_enabled(!self.transactions.is_empty(), egui::Button::new("Close statement")).clicked() {
+                if ui.add(egui::Button::new("Close").corner_radius(CornerRadius::same(255))).clicked() {
                     self.transactions.clear();
                     self.file_name = None;
                     self.filter.clear();
+                    self.category = None;
                 }
-            });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                egui::widgets::global_theme_preference_switch(ui);
             });
         });
     }
@@ -214,32 +253,35 @@ impl BillSplitApp {
     fn footer(ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
-            ui.label("Developed by ");
-            ui.add(egui::Hyperlink::from_label_and_url("decryp7", "https://decryptology.net")
+            let text = |s: &str| RichText::new(s).size(12.0).color(theme::FAINT);
+            let link = |s: &str| RichText::new(s).size(12.0).color(theme::GOLD_SOFT);
+            ui.label(text("Developed by "));
+            ui.add(egui::Hyperlink::from_label_and_url(link("decryp7"), "https://decryptology.net")
                 .open_in_new_tab(true));
-            ui.label(".");
-            ui.separator();
-            ui.add(egui::Hyperlink::from_label_and_url("(source code)", "https://dev.decryptology.net/decryp7/credit-card-billsplit")
+            ui.label(text("  ·  "));
+            ui.add(egui::Hyperlink::from_label_and_url(link("source code"), "https://dev.decryptology.net/decryp7/credit-card-billsplit")
                 .open_in_new_tab(true));
-            ui.separator();
-            egui::warn_if_debug_build(ui);
+            ui.with_layout(Layout::right_to_left(Align::Center), egui::warn_if_debug_build);
         });
     }
 
-    /// A small framed box with a caption and a large value.
+    /// A softly lit tile with a caption and a large serif figure.
     fn summary_tile(ui: &mut egui::Ui, title: &str, value: String, color: Option<Color32>) {
-        egui::Frame::group(ui.style())
-            .inner_margin(egui::Margin::symmetric(12, 6))
-            .show(ui, |ui| {
-                ui.vertical(|ui| {
-                    ui.label(RichText::new(title).small().weak());
-                    let mut text = RichText::new(value).strong().size(20.0);
+        theme::tile_frame().show(ui, |ui| {
+            ui.set_min_width(130.0);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 2.0;
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
                     if let Some(color) = color {
-                        text = text.color(color);
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(7.0, 7.0), egui::Sense::hover());
+                        ui.painter().circle_filled(rect.center(), 3.5, color);
                     }
-                    ui.label(text);
+                    ui.label(theme::caption(title));
                 });
+                ui.label(theme::display(value, 30.0).color(color.unwrap_or(theme::GOLD_LIGHT)));
             });
+        });
     }
 
     /// Statement total plus the amount assigned to each card, so the bill can be split.
@@ -251,6 +293,7 @@ impl BillSplitApp {
             .sum();
 
         ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(12.0, 12.0);
             Self::summary_tile(ui, "Transactions", self.transactions.len().to_string(), None);
             Self::summary_tile(ui, "Total", format_money(total), None);
             for (index, card) in cards.iter().enumerate() {
@@ -261,36 +304,142 @@ impl BillSplitApp {
                 Self::summary_tile(ui, &format!("Card •••• {card}"), format_money(card_total), Some(card_color(index)));
             }
             if self.transactions.iter().any(|t| t.assigned_to.is_none()) {
-                Self::summary_tile(ui, "Unassigned", format_money(unassigned), Some(ui.visuals().warn_fg_color));
+                Self::summary_tile(ui, "Unassigned", format_money(unassigned), Some(theme::WARN));
             }
         });
+    }
+
+    /// Spending per category as one proportional bar, with a chip per category that filters the
+    /// table to it. Payments and the previous balance aren't spending, so they're left out.
+    fn categories(&mut self, ui: &mut egui::Ui, cards: &[String]) {
+        let mut totals: Vec<(Category, f64)> = Vec::new();
+        for (transaction, merchant) in self.transactions.iter().zip(&self.merchants) {
+            if merchant.category == Category::Payments {
+                continue;
+            }
+            match totals.iter_mut().find(|(c, _)| *c == merchant.category) {
+                Some((_, total)) => *total += transaction.amount,
+                None => totals.push((merchant.category, transaction.amount)),
+            }
+        }
+        totals.retain(|&(_, total)| total > 0.005);
+        totals.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let spending: f64 = totals.iter().map(|(_, total)| total).sum();
+        if totals.is_empty() {
+            return;
+        }
+
+        theme::card_frame().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(theme::eyebrow("Spending by category"));
+                ui.label(RichText::new(format_money(spending)).size(12.0).color(theme::FAINT));
+            });
+
+            // The bar: one segment per category, as wide as its share of the spending.
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 8.0), egui::Sense::hover());
+            let painter = ui.painter();
+            painter.rect_filled(rect, 4.0, theme::alpha(Color32::WHITE, 0x0a));
+            let mut x = rect.left();
+            for &(category, total) in &totals {
+                let width = (total / spending) as f32 * rect.width();
+                let segment = egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
+                let dimmed = self.category.is_some_and(|c| c != category);
+                let color = category_color(category);
+                painter.rect_filled(segment.shrink2(egui::vec2(1.0, 0.0)), 4.0,
+                                    if dimmed { theme::alpha(color, 0x40) } else { color });
+                x += width;
+            }
+
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+                ui.spacing_mut().button_padding = egui::vec2(10.0, 3.0);
+                for &(category, total) in &totals {
+                    let color = category_color(category);
+                    let selected = self.category == Some(category);
+                    let mut job = egui::text::LayoutJob::default();
+                    let font = |size| egui::FontId::proportional(size);
+                    job.append("• ", 0.0, egui::TextFormat::simple(font(16.0), color));
+                    job.append(category.label(), 0.0, egui::TextFormat::simple(font(13.0), theme::INK));
+                    job.append(&format_money(total), 8.0, egui::TextFormat::simple(font(13.0), theme::GOLD_LIGHT));
+                    job.append(&format!("{:.0}%", total / spending * 100.0), 6.0,
+                               egui::TextFormat::simple(font(11.5), theme::FAINT));
+                    let chip = egui::Button::new(job)
+                        .fill(if selected { theme::alpha(color, 0x26) } else { Color32::TRANSPARENT })
+                        .stroke(Stroke::new(1.0, if selected { color } else { theme::alpha(Color32::WHITE, 0x1a) }))
+                        .corner_radius(CornerRadius::same(255));
+                    let response = ui.add(chip).on_hover_ui(|ui| self.category_breakdown(ui, category, cards));
+                    if response.clicked() {
+                        self.category = if selected { None } else { Some(category) };
+                    }
+                }
+            });
+        });
+    }
+
+    /// Tooltip with how much of a category each card has been assigned.
+    fn category_breakdown(&self, ui: &mut egui::Ui, category: Category, cards: &[String]) {
+        let in_category = || self.transactions.iter().zip(&self.merchants).filter(|(_, m)| m.category == category);
+        ui.label(theme::eyebrow(category.label()));
+        egui::Grid::new("category_breakdown").num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
+            for (index, card) in cards.iter().enumerate() {
+                let total: f64 = in_category()
+                    .filter(|(t, _)| t.assigned_to.as_deref() == Some(card))
+                    .map(|(t, _)| t.amount)
+                    .sum();
+                ui.label(RichText::new(format!("•••• {card}")).color(card_color(index)));
+                ui.label(RichText::new(format_money(total)).color(theme::INK));
+                ui.end_row();
+            }
+            let unassigned: f64 = in_category().filter(|(t, _)| t.assigned_to.is_none()).map(|(t, _)| t.amount).sum();
+            if unassigned != 0.0 {
+                ui.label(RichText::new("Unassigned").color(theme::WARN));
+                ui.label(RichText::new(format_money(unassigned)).color(theme::INK));
+                ui.end_row();
+            }
+        });
+        ui.label(RichText::new("Click to show only this category").size(11.5).color(theme::FAINT));
     }
 
     /// Filter box and buttons to (re)assign the transactions shown in bulk.
     fn toolbar(&mut self, ui: &mut egui::Ui, cards: &[String]) {
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut self.filter)
-                .hint_text("🔍 Filter by date, description or card")
-                .desired_width(280.0));
+                .hint_text("🔍  Filter by merchant, category, country…")
+                .margin(egui::Margin::symmetric(12, 6))
+                .desired_width(300.0));
             if !self.filter.is_empty() && ui.small_button("✖").on_hover_text("Clear filter").clicked() {
                 self.filter.clear();
             }
+            if let Some(category) = self.category {
+                let color = category_color(category);
+                let chip = egui::Button::new(RichText::new(format!("{}  ✖", category.label())).color(color))
+                    .fill(theme::alpha(color, 0x1a))
+                    .stroke(Stroke::new(1.0, theme::alpha(color, 0x80)))
+                    .corner_radius(CornerRadius::same(255));
+                if ui.add(chip).on_hover_text("Show all categories").clicked() {
+                    self.category = None;
+                }
+            }
 
-            ui.separator();
-            ui.label("Assign shown to:");
+            ui.add_space(12.0);
+            ui.label(theme::caption("Assign shown to"));
             for (index, card) in cards.iter().enumerate() {
-                let button = egui::Button::new(RichText::new(format!("•••• {card}")).color(card_color(index)));
+                let color = card_color(index);
+                let button = egui::Button::new(RichText::new(format!("•••• {card}")).strong().color(color))
+                    .fill(theme::alpha(color, 0x14))
+                    .stroke(Stroke::new(1.0, theme::alpha(color, 0x80)))
+                    .corner_radius(CornerRadius::same(255));
                 if ui.add(button).on_hover_text("Assign all transactions shown below to this card").clicked() {
-                    let card = Some(card.clone());
-                    let filter = self.filter.clone();
-                    for transaction in self.transactions.iter_mut() {
-                        if matches(&filter, transaction) {
-                            transaction.assigned_to = card.clone();
-                        }
+                    for i in self.visible() {
+                        self.transactions[i].assigned_to = Some(card.clone());
                     }
                 }
             }
-            if ui.button("Reset").on_hover_text("Assign every transaction back to the card it was made on").clicked() {
+            if ui.add(egui::Button::new("Reset").corner_radius(CornerRadius::same(255)))
+                .on_hover_text("Assign every transaction back to the card it was made on")
+                .clicked()
+            {
                 for transaction in self.transactions.iter_mut() {
                     transaction.assigned_to = Some(last_four(&transaction.card).to_string());
                 }
@@ -298,7 +447,8 @@ impl BillSplitApp {
 
             if let Some(file_name) = &self.file_name {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(RichText::new(file_name).weak());
+                    ui.add(egui::Label::new(RichText::new(file_name).family(theme::serif_italic()).size(17.0).color(theme::MUTED))
+                        .truncate());
                 });
             }
         });
@@ -308,59 +458,77 @@ impl BillSplitApp {
     /// Clicking the selected card again leaves the transaction unassigned.
     fn table(&mut self, ui: &mut egui::Ui, cards: &[String]) {
         // Indices into `self.transactions`, so edits made in the table apply to the real rows.
-        let visible: Vec<usize> = (0..self.transactions.len())
-            .filter(|&i| matches(&self.filter, &self.transactions[i]))
-            .collect();
-        let row_height = ui.spacing().interact_size.y + 4.0;
+        let visible = self.visible();
+        let row_height = 46.0;
+        let heading = |ui: &mut egui::Ui, text: &str| { ui.label(theme::eyebrow(text).size(10.0)); };
 
         TableBuilder::new(ui)
             .striped(true)
             .resizable(true)
             .cell_layout(Layout::left_to_right(Align::Center))
-            .column(Column::auto().at_least(60.0))
+            .column(Column::auto().at_least(70.0))
             .column(Column::auto().at_least(240.0).clip(true))
-            .column(Column::auto().at_least(90.0))
-            .column(Column::auto().at_least(80.0))
+            .column(Column::auto().at_least(270.0).clip(true))
+            .column(Column::auto().at_least(130.0))
+            .column(Column::auto().at_least(110.0))
             .column(Column::remainder())
             .auto_shrink(false)
-            .header(24.0, |mut header| {
-                header.col(|ui| { ui.strong("Date"); });
-                header.col(|ui| { ui.strong("Description"); });
+            .header(30.0, |mut header| {
+                header.col(|ui| heading(ui, "Date"));
+                header.col(|ui| heading(ui, "Description"));
+                header.col(|ui| heading(ui, "Merchant"));
                 header.col(|ui| {
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| { ui.strong("Amount (SGD)"); });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| heading(ui, "Amount (SGD)"));
                 });
-                header.col(|ui| { ui.strong("Card"); });
-                header.col(|ui| { ui.strong("Assigned to"); });
+                header.col(|ui| { ui.add_space(16.0); heading(ui, "Card"); });
+                header.col(|ui| heading(ui, "Assigned to"));
             })
             .body(|body| {
                 // Only the rows on screen are laid out, which keeps long statements fast.
                 body.rows(row_height, visible.len(), |mut row| {
-                    let transaction = &mut self.transactions[visible[row.index()]];
-                    row.col(|ui| { ui.label(&transaction.date); });
-                    row.col(|ui| { ui.label(&transaction.description).on_hover_text(&transaction.description); });
+                    let index = visible[row.index()];
+                    let transaction = &mut self.transactions[index];
+                    let merchant = &self.merchants[index];
+                    row.col(|ui| { ui.label(RichText::new(&transaction.date).color(theme::MUTED)); });
+                    row.col(|ui| {
+                        ui.label(RichText::new(&transaction.description).color(theme::BODY))
+                            .on_hover_text(&transaction.description);
+                    });
+                    row.col(|ui| Self::merchant_cell(ui, merchant));
                     row.col(|ui| {
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             let mut text = RichText::new(format!("{:.2}", transaction.amount)).monospace();
-                            if transaction.amount < 0.0 {
-                                text = text.color(credit_color(ui));
+                            text = if transaction.amount < 0.0 {
+                                text.color(theme::CREDIT)
                             } else if transaction.amount >= LARGE_AMOUNT {
-                                text = text.strong();
-                            }
+                                text.color(theme::GOLD_LIGHT)
+                            } else {
+                                text.color(theme::BODY)
+                            };
                             ui.label(text);
                         });
                     });
                     row.col(|ui| {
-                        ui.label(format!("•••• {}", last_four(&transaction.card)))
+                        ui.add_space(16.0);
+                        ui.label(RichText::new(format!("•••• {}", last_four(&transaction.card))).color(theme::FAINT))
                             .on_hover_text(&transaction.card);
                     });
                     row.col(|ui| {
+                        ui.spacing_mut().button_padding = egui::vec2(10.0, 2.0);
+                        ui.spacing_mut().item_spacing.x = 6.0;
                         for (index, card) in cards.iter().enumerate() {
                             let selected = transaction.assigned_to.as_deref() == Some(card);
-                            let mut text = RichText::new(card);
-                            if selected {
-                                text = text.strong().color(card_color(index));
-                            }
-                            if ui.add(egui::Button::selectable(selected, text)).clicked() {
+                            let color = card_color(index);
+                            let chip = if selected {
+                                egui::Button::new(RichText::new(card).strong().color(color))
+                                    .fill(theme::alpha(color, 0x26))
+                                    .stroke(Stroke::new(1.0, theme::alpha(color, 0xb0)))
+                            } else {
+                                egui::Button::new(RichText::new(card).color(theme::FAINT))
+                                    .fill(Color32::TRANSPARENT)
+                                    .stroke(Stroke::new(1.0, theme::alpha(Color32::WHITE, 0x14)))
+                            };
+                            if ui.add(chip.corner_radius(CornerRadius::same(255))).clicked() {
                                 transaction.assigned_to = if selected { None } else { Some(card.clone()) };
                             }
                         }
@@ -369,21 +537,87 @@ impl BillSplitApp {
             });
     }
 
+    /// Merchant name on top; category, place and payment processor underneath.
+    fn merchant_cell(ui: &mut egui::Ui, merchant: &Merchant) {
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 2.0);
+            ui.add(egui::Label::new(RichText::new(&merchant.name).family(theme::semibold()).size(13.5).color(theme::INK_BRIGHT))
+                .truncate());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(merchant.category.label()).size(11.5).color(category_color(merchant.category)));
+                let mut details = String::new();
+                if let Some(place) = &merchant.place {
+                    details.push_str(&format!("  ·  {place}"));
+                }
+                if let Some(via) = merchant.via {
+                    details.push_str(&format!("  ·  via {via}"));
+                }
+                ui.add(egui::Label::new(RichText::new(details).size(11.5).color(theme::FAINT)).truncate());
+            });
+        });
+    }
+
     /// Shown when no statement is open.
     fn empty_state(&mut self, ui: &mut egui::Ui) {
+        theme::paint_glow(ui.painter(), ui.max_rect());
         ui.vertical_centered(|ui| {
-            ui.add_space(ui.available_height() / 3.0);
-            ui.heading("Split your credit card bill");
-            ui.add_space(8.0);
-            ui.label("Open a Citibank credit card eStatement (PDF) to list its transactions.");
-            ui.label("Each transaction is assigned to the card it was made on — click a card to reassign it.");
-            ui.add_space(12.0);
-            if ui.add(egui::Button::new(RichText::new("📂 Open statement…").size(16.0))).clicked() {
+            ui.add_space((ui.available_height() / 2.0 - 260.0).max(24.0));
+            ui.label(theme::eyebrow("Split the bill"));
+            ui.add_space(10.0);
+            ui.label(theme::display("Who spent what?", 56.0));
+            ui.label(RichText::new("Your credit card statement, card by card")
+                .family(theme::serif_italic())
+                .size(22.0)
+                .color(Color32::from_rgb(0xe9, 0xd7, 0xb0)));
+            ui.add_space(14.0);
+            theme::flourish(ui);
+            ui.add_space(14.0);
+            let body = |s: &str| RichText::new(s).size(15.5).color(theme::BODY);
+            ui.label(body("Open a Citibank credit card eStatement (PDF) to list its transactions."));
+            ui.label(body("Each transaction is assigned to the card it was made on — click a card to reassign it."));
+            ui.add_space(22.0);
+            let open = theme::primary_button("Open statement…").min_size(egui::vec2(200.0, 42.0));
+            if ui.add(open).on_hover_text(ui.ctx().format_shortcut(&OPEN_SHORTCUT)).clicked() {
                 self.open_file_dialog(ui.ctx());
             }
-            ui.add_space(4.0);
-            ui.label(RichText::new("or drag and drop a PDF here").weak());
+            ui.add_space(6.0);
+            ui.label(RichText::new("or drag and drop a PDF here").size(13.0).color(theme::FAINT));
+            ui.add_space(40.0);
+
+            let highlights = [
+                ("Private", "The PDF is read on your device. Nothing is uploaded."),
+                ("Per card", "Every charge starts on the card it was made on."),
+                ("Flexible", "Filter, then assign whole groups of charges at once."),
+            ];
+            let width = ui.available_width().min(3.0 * 210.0 + 2.0 * 12.0);
+            ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(12.0, 12.0);
+                    for (title, text) in highlights {
+                        theme::tile_frame().show(ui, |ui| {
+                            ui.set_width(176.0);
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 4.0;
+                                ui.label(theme::display(title, 24.0).color(theme::GOLD_LIGHT));
+                                ui.label(RichText::new(text).size(13.0).color(theme::BODY));
+                            });
+                        });
+                    }
+                });
+            });
         });
+    }
+
+    /// A slim banner explaining why the last statement couldn't be opened.
+    fn error_banner(ui: &mut egui::Ui, error: &str) {
+        egui::Frame::new()
+            .fill(theme::alpha(theme::ERROR, 0x1a))
+            .stroke(Stroke::new(1.0, theme::alpha(theme::ERROR, 0x66)))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(egui::Margin::symmetric(14, 8))
+            .show(ui, |ui| {
+                ui.colored_label(theme::ERROR, format!("⚠  {error}"));
+            });
     }
 
     /// Dims the window while a file is dragged over it.
@@ -393,17 +627,22 @@ impl BillSplitApp {
         }
         let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop_overlay")));
         let rect = ctx.content_rect();
-        painter.rect_filled(rect, 0.0, Color32::from_black_alpha(180));
-        painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Drop the PDF statement to open it",
-                     egui::FontId::proportional(24.0), Color32::WHITE);
+        painter.rect_filled(rect, 0.0, theme::alpha(theme::BG, 0xe0));
+        painter.rect_stroke(rect.shrink(24.0), 18.0, Stroke::new(1.5, theme::alpha(theme::GOLD, 0xb0)),
+                            egui::StrokeKind::Inside);
+        painter.text(rect.center() - egui::vec2(0.0, 14.0), egui::Align2::CENTER_CENTER, "Drop the statement",
+                     egui::FontId::new(40.0, theme::serif()), theme::INK_BRIGHT);
+        painter.text(rect.center() + egui::vec2(0.0, 24.0), egui::Align2::CENTER_CENTER, "PDF ESTATEMENTS ONLY",
+                     egui::FontId::proportional(11.0), theme::GOLD);
     }
 }
 
 /// Whether a transaction matches the filter text (case-insensitive).
-fn matches(filter: &str, transaction: &Transaction) -> bool {
+fn matches(filter: &str, transaction: &Transaction, merchant: &Merchant) -> bool {
     let filter = filter.trim().to_lowercase();
     filter.is_empty()
         || transaction.description.to_lowercase().contains(&filter)
+        || merchant.search_text().contains(&filter)
         || transaction.date.to_lowercase().contains(&filter)
         || transaction.card.contains(&filter)
 }
@@ -414,22 +653,35 @@ fn format_money(amount: f64) -> String {
     format!("{sign}${:.2}", amount.abs())
 }
 
-/// A distinct color per card, used to tell cards apart at a glance.
-fn card_color(index: usize) -> Color32 {
-    const COLORS: [Color32; 6] = [
-        Color32::from_rgb(66, 150, 250),
-        Color32::from_rgb(230, 140, 40),
-        Color32::from_rgb(170, 110, 230),
-        Color32::from_rgb(40, 180, 170),
-        Color32::from_rgb(220, 90, 120),
-        Color32::from_rgb(150, 160, 60),
-    ];
-    COLORS[index % COLORS.len()]
+/// A gentle tint per category, so similar spending stands out down the table.
+fn category_color(category: Category) -> Color32 {
+    match category {
+        Category::Dining => Color32::from_rgb(0xe8, 0xa8, 0x7c),
+        Category::Groceries => Color32::from_rgb(0xa8, 0xcf, 0x8e),
+        Category::Transport => Color32::from_rgb(0x8f, 0xb4, 0xe8),
+        Category::Shopping => Color32::from_rgb(0xe2, 0xb3, 0x5c),
+        Category::Travel => Color32::from_rgb(0x84, 0xcc, 0xc8),
+        Category::Subscriptions => Color32::from_rgb(0xbe, 0xa6, 0xe8),
+        Category::Bills => Color32::from_rgb(0xc9, 0xc4, 0x7a),
+        Category::Health => Color32::from_rgb(0xe8, 0x93, 0xa8),
+        Category::Leisure => Color32::from_rgb(0x9c, 0xd6, 0xa8),
+        Category::Fees => theme::ERROR,
+        Category::Payments => theme::CREDIT,
+        Category::Other => theme::MUTED,
+    }
 }
 
-/// Color for credits (refunds and payments), readable in both themes.
-fn credit_color(ui: &egui::Ui) -> Color32 {
-    if ui.visuals().dark_mode { Color32::from_rgb(110, 200, 120) } else { Color32::from_rgb(30, 130, 50) }
+/// A distinct color per card, used to tell cards apart at a glance. Warm and muted to sit with the gold.
+fn card_color(index: usize) -> Color32 {
+    const COLORS: [Color32; 6] = [
+        theme::GOLD,
+        Color32::from_rgb(0x8f, 0xb4, 0xe8), // moonlight blue
+        Color32::from_rgb(0xe8, 0x93, 0x8a), // lantern rose
+        Color32::from_rgb(0x84, 0xcc, 0xb0), // jade
+        Color32::from_rgb(0xbe, 0xa6, 0xe8), // lavender
+        Color32::from_rgb(0xc9, 0xc4, 0x7a), // osmanthus
+    ];
+    COLORS[index % COLORS.len()]
 }
 
 impl eframe::App for BillSplitApp {
@@ -456,34 +708,46 @@ impl eframe::App for BillSplitApp {
             self.open_file_dialog(ui.ctx());
         }
 
-        egui::Panel::top("top_panel").show(ui, |ui| self.menu_bar(ui));
-        egui::Panel::bottom("bottom_panel").show(ui, Self::footer);
+        let top = egui::Panel::top("top_panel")
+            .frame(egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::symmetric(24, 12)))
+            .show(ui, |ui| self.header(ui));
+        let rule = top.response.rect;
+        theme::paint_rule(ui.painter(), rule.left(), rule.right(), rule.bottom(), theme::alpha(theme::GOLD, 0x8c));
+        egui::Panel::bottom("bottom_panel")
+            .frame(egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::symmetric(24, 8)))
+            .show(ui, Self::footer);
 
         let cards = self.cards();
-        egui::CentralPanel::default().show(ui, |ui| {
-            if self.loading {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label("Reading statement…");
-                });
-            }
-            if let Some(error) = &self.error {
-                ui.colored_label(ui.visuals().error_fg_color, format!("⚠ {error}"));
-            }
-
-            if self.transactions.is_empty() {
-                if !self.loading {
-                    self.empty_state(ui);
+        self.identify_merchants();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(theme::NAVY).inner_margin(egui::Margin::symmetric(24, 18)))
+            .show(ui, |ui| {
+                if self.loading {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(RichText::new("Reading statement…").family(theme::serif_italic()).size(18.0)
+                            .color(theme::GOLD_SOFT));
+                    });
                 }
-                return;
-            }
+                if let Some(error) = &self.error {
+                    Self::error_banner(ui, error);
+                }
 
-            self.summary(ui, &cards);
-            ui.add_space(4.0);
-            self.toolbar(ui, &cards);
-            ui.separator();
-            self.table(ui, &cards);
-        });
+                if self.transactions.is_empty() {
+                    if !self.loading {
+                        self.empty_state(ui);
+                    }
+                    return;
+                }
+
+                self.summary(ui, &cards);
+                ui.add_space(10.0);
+                self.categories(ui, &cards);
+                ui.add_space(10.0);
+                self.toolbar(ui, &cards);
+                ui.add_space(8.0);
+                theme::card_frame().show(ui, |ui| self.table(ui, &cards));
+            });
 
         Self::drop_overlay(ui.ctx());
     }
