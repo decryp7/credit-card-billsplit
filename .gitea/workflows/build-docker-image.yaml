@@ -52,7 +52,7 @@ jobs:
         env:
           ACTIONS_RUNTIME_TOKEN: ''
         with:
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           context: .
           file: ./Dockerfile
           push: true
