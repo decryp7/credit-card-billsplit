@@ -160,7 +160,9 @@ impl CreditCardBillReader {
     /// On the web, Pdfium is the WASM module initialised by index.html.
     #[cfg(target_arch = "wasm32")]
     fn bind_pdfium() -> Result<Pdfium, String> {
-        Ok(Pdfium::default())
+        Pdfium::bind_to_system_library()
+            .map(Pdfium::new)
+            .map_err(|e| format!("Unable to load the Pdfium library: {e}. Try reloading the page."))
     }
 
     /// Natively, use a Pdfium library next to the app, falling back to one installed on the system.
