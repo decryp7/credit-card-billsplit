@@ -1,4 +1,4 @@
-var cacheName = 'egui-template-pwa';
+var cacheName = 'credit-card-billsplit-v2';
 var filesToCache = [
     './',
     './index.html',

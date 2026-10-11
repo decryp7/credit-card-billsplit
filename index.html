@@ -138,15 +138,11 @@
     <script defer>
         window.addEventListener('TrunkApplicationStarted', function (event){
             PDFiumModule().then(async pdfiumModule => {
-                const {
-                    initialize_pdfium_render,
-                    log_page_metrics_to_console
-                } = wasmBindings;
+                const { initialize_pdfium_render } = wasmBindings;
 
                 console.assert(initialize_pdfium_render(pdfiumModule, wasmBindings, false),
                     "Initialization of pdfium-render failed!");
 
-                //log_page_metrics_to_console("https://raw.githubusercontent.com/ajrcarey/pdfium-render/master/test/annotations-test.pdf");
             });
         });
 
