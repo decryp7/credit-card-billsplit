@@ -5,7 +5,13 @@ use egui_extras::{Column, TableBuilder};
 
 use crate::bill_reader::{last_four, BillReader, CreditCardBillReader, Transaction};
 use crate::merchant::{self, Category, Merchant};
-use crate::theme;
+use crate::{export, theme};
+
+/// Name and extensions shown in the file picker.
+type FileFilter = (&'static str, &'static [&'static str]);
+const STATEMENT_FILES: FileFilter = ("PDF statement", &["pdf"]);
+const SPLIT_FILES: FileFilter = ("Saved split", &["json"]);
+const CSV_FILES: FileFilter = ("CSV spreadsheet", &["csv"]);
 
 const OPEN_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
 /// Amounts from this value onwards are highlighted in the table.
@@ -92,7 +98,17 @@ impl BillSplitApp {
     // Loading
 
     /// Reads the transactions out of the PDF bytes. Runs off the UI thread.
+    /// Also restores splits saved with [`Self::export_split`].
     fn parse(file_name: String, data: Vec<u8>) -> LoadedStatement {
+        if export::is_saved_split(&file_name) {
+            return match export::from_json(&data) {
+                Ok(split) => LoadedStatement {
+                    file_name: split.statement.unwrap_or(file_name),
+                    transactions: Ok(split.transactions),
+                },
+                Err(e) => LoadedStatement { file_name, transactions: Err(e) },
+            };
+        }
         let transactions = CreditCardBillReader::new().and_then(|reader| reader.read(data));
         LoadedStatement { file_name, transactions }
     }
@@ -103,15 +119,15 @@ impl BillSplitApp {
         ctx.request_repaint();
     }
 
-    /// Lets the user pick a statement and reads it in the background.
-    fn open_file_dialog(&mut self, ctx: &egui::Context) {
+    /// Lets the user pick a statement or saved split and reads it in the background.
+    fn open_file_dialog(&mut self, ctx: &egui::Context, filter: FileFilter) {
         let inbox = Arc::clone(&self.inbox);
         let ctx = ctx.clone();
 
         // Native: the dialog is modal, so show it right away and only read the file on another thread.
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() else {
+            let Some(path) = rfd::FileDialog::new().add_filter(filter.0, filter.1).pick_file() else {
                 return;
             };
             self.start_loading();
@@ -130,7 +146,7 @@ impl BillSplitApp {
             // The browser file picker can only be awaited, and cancelling it never resolves on some
             // browsers, so no spinner is shown while it is open.
             wasm_bindgen_futures::spawn_local(async move {
-                let Some(file) = rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).pick_file().await else {
+                let Some(file) = rfd::AsyncFileDialog::new().add_filter(filter.0, filter.1).pick_file().await else {
                     return;
                 };
                 let data = file.read().await;
@@ -192,11 +208,11 @@ impl BillSplitApp {
         }
     }
 
-    /// Opens the first PDF dropped onto the window, if any.
+    /// Opens the first PDF or saved split dropped onto the window, if any.
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         if let Some(file) = dropped.into_iter().find(|f| {
-            f.path().extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+            f.path().extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf") || e.eq_ignore_ascii_case("json"))
         }) {
             self.open_dropped_file(ctx, file);
         }
@@ -207,6 +223,20 @@ impl BillSplitApp {
         if self.merchants.len() != self.transactions.len() {
             self.merchants = self.transactions.iter().map(|t| merchant::identify(&t.description)).collect();
         }
+    }
+
+    /// Saves the transactions and their assignments, so the split can be imported again later.
+    fn export_split(&mut self) {
+        let data = export::to_json(self.file_name.as_deref(), &self.transactions);
+        let name = export::export_name(self.file_name.as_deref(), "json");
+        self.error = export::save_file(&name, SPLIT_FILES, "application/json", &data).err();
+    }
+
+    /// Saves the transactions as a CSV file for spreadsheets.
+    fn export_csv(&mut self) {
+        let data = export::to_csv(&self.transactions, &self.merchants);
+        let name = export::export_name(self.file_name.as_deref(), "csv");
+        self.error = export::save_file(&name, CSV_FILES, "text/csv", &data).err();
     }
 
     /// Indices of the transactions that pass the filter box and the category filter.
@@ -238,7 +268,22 @@ impl BillSplitApp {
                     .on_hover_text(format!("Open another statement ({shortcut})"))
                     .clicked()
                 {
-                    self.open_file_dialog(ui.ctx());
+                    self.open_file_dialog(ui.ctx(), STATEMENT_FILES);
+                }
+                ui.menu_button("Export  ⏷", |ui| {
+                    ui.set_min_width(240.0);
+                    if ui.button("Saved split (.json)").on_hover_text("Import it later to carry on where you left off").clicked() {
+                        self.export_split();
+                    }
+                    if ui.button("Spreadsheet (.csv)").on_hover_text("Open in Excel, Numbers or Google Sheets").clicked() {
+                        self.export_csv();
+                    }
+                });
+                if ui.add_enabled(!self.loading, egui::Button::new("Import…").corner_radius(CornerRadius::same(255)))
+                    .on_hover_text("Open a split saved with Export")
+                    .clicked()
+                {
+                    self.open_file_dialog(ui.ctx(), SPLIT_FILES);
                 }
                 if ui.add(egui::Button::new("Close").corner_radius(CornerRadius::same(255))).clicked() {
                     self.transactions.clear();
@@ -578,10 +623,15 @@ impl BillSplitApp {
             ui.add_space(22.0);
             let open = theme::primary_button("Open statement…").min_size(egui::vec2(200.0, 42.0));
             if ui.add(open).on_hover_text(ui.ctx().format_shortcut(&OPEN_SHORTCUT)).clicked() {
-                self.open_file_dialog(ui.ctx());
+                self.open_file_dialog(ui.ctx(), STATEMENT_FILES);
             }
             ui.add_space(6.0);
             ui.label(RichText::new("or drag and drop a PDF here").size(13.0).color(theme::FAINT));
+            let import = egui::Button::new(RichText::new("Import a saved split…").size(13.0).color(theme::GOLD_SOFT))
+                .frame(false);
+            if ui.add(import).on_hover_text("Open a .json file saved with Export").clicked() {
+                self.open_file_dialog(ui.ctx(), SPLIT_FILES);
+            }
             ui.add_space(40.0);
 
             let highlights = [
@@ -630,9 +680,9 @@ impl BillSplitApp {
         painter.rect_filled(rect, 0.0, theme::alpha(theme::BG, 0xe0));
         painter.rect_stroke(rect.shrink(24.0), 18.0, Stroke::new(1.5, theme::alpha(theme::GOLD, 0xb0)),
                             egui::StrokeKind::Inside);
-        painter.text(rect.center() - egui::vec2(0.0, 14.0), egui::Align2::CENTER_CENTER, "Drop the statement",
+        painter.text(rect.center() - egui::vec2(0.0, 14.0), egui::Align2::CENTER_CENTER, "Drop the file",
                      egui::FontId::new(40.0, theme::serif()), theme::INK_BRIGHT);
-        painter.text(rect.center() + egui::vec2(0.0, 24.0), egui::Align2::CENTER_CENTER, "PDF ESTATEMENTS ONLY",
+        painter.text(rect.center() + egui::vec2(0.0, 24.0), egui::Align2::CENTER_CENTER, "PDF STATEMENTS OR SAVED SPLITS",
                      egui::FontId::proportional(11.0), theme::GOLD);
     }
 }
@@ -705,7 +755,7 @@ impl eframe::App for BillSplitApp {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if ui.input_mut(|i| i.consume_shortcut(&OPEN_SHORTCUT)) && !self.loading {
-            self.open_file_dialog(ui.ctx());
+            self.open_file_dialog(ui.ctx(), STATEMENT_FILES);
         }
 
         let top = egui::Panel::top("top_panel")

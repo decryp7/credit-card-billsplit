@@ -2,6 +2,7 @@
 
 mod app;
 mod bill_reader;
+mod export;
 mod merchant;
 mod theme;
 
