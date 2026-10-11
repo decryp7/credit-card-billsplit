@@ -32,12 +32,16 @@ pub fn export_name(statement: Option<&str>, extension: &str) -> String {
     format!("{stem}.split.{extension}")
 }
 
+/// Only the last 4 digits of each card are saved, so the file is safe to share.
 pub fn to_json(statement: Option<&str>, transactions: &[Transaction]) -> Vec<u8> {
+    let transactions = transactions.iter()
+        .map(|t| Transaction { card: last_four(&t.card).to_string(), ..t.clone() })
+        .collect();
     let split = SavedSplit {
         app: APP.to_string(),
         version: VERSION,
         statement: statement.map(str::to_string),
-        transactions: transactions.to_vec(),
+        transactions,
     };
     serde_json::to_vec_pretty(&split).expect("a split can always be serialized")
 }
@@ -133,9 +137,18 @@ mod tests {
     #[test]
     fn json_round_trips() {
         let transactions = sample();
-        let split = from_json(&to_json(Some("eStatement.pdf"), &transactions)).unwrap();
+        let json = to_json(Some("eStatement.pdf"), &transactions);
+        let split = from_json(&json).unwrap();
         assert_eq!(split.statement.as_deref(), Some("eStatement.pdf"));
-        assert_eq!(split.transactions, transactions);
+        assert_eq!(split.transactions.len(), transactions.len());
+        for (saved, original) in split.transactions.iter().zip(&transactions) {
+            assert_eq!(saved.card, last_four(&original.card));
+            assert_eq!(saved.assigned_to, original.assigned_to);
+            assert_eq!((&saved.date, &saved.description, saved.amount),
+                       (&original.date, &original.description, original.amount));
+        }
+        // Full card numbers never end up in the file.
+        assert!(!String::from_utf8(json).unwrap().contains("1111 2222"));
     }
 
     #[test]
