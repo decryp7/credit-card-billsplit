@@ -1,0 +1,9 @@
+# Build output
+/target/
+/dist/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/sonarlint.xml
