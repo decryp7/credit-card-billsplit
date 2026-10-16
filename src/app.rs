@@ -16,6 +16,15 @@ const CSV_FILES: FileFilter = ("CSV spreadsheet", &["csv"]);
 const OPEN_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
 /// Amounts from this value onwards are highlighted in the table.
 const LARGE_AMOUNT: f64 = 45.0;
+/// Below this window width (in points) the layout switches to one suited to phones.
+const COMPACT_WIDTH: f32 = 720.0;
+/// Height of a transaction in the phone layout.
+const COMPACT_ROW_HEIGHT: f32 = 96.0;
+
+/// Whether the window is narrow enough (a phone, or a small window) for the compact layout.
+fn is_compact(ctx: &egui::Context) -> bool {
+    ctx.content_rect().width() < COMPACT_WIDTH
+}
 
 /// Result of reading a statement on a background thread (native) or task (web).
 struct LoadedStatement {
@@ -251,48 +260,82 @@ impl BillSplitApp {
     // UI
 
     /// Site name and app title on the left, statement actions on the right.
+    /// On a phone the actions go on their own row underneath.
     fn header(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        let compact = is_compact(ui.ctx());
+        let title = |ui: &mut egui::Ui| {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 ui.add(egui::Hyperlink::from_label_and_url(theme::eyebrow("decryptology.net"), "https://decryptology.net")
                     .open_in_new_tab(true));
-                ui.label(theme::display("Credit Card BillSplit", 28.0));
+                ui.label(theme::display("Credit Card BillSplit", if compact { 22.0 } else { 28.0 }));
             });
+        };
+        if compact {
+            title(ui);
+            if !self.transactions.is_empty() {
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    self.open_button(ui);
+                    self.import_button(ui);
+                    self.export_menu(ui);
+                    self.close_button(ui);
+                });
+            }
+            return;
+        }
+        ui.horizontal(|ui| {
+            title(ui);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if self.transactions.is_empty() {
                     return;
                 }
-                let shortcut = ui.ctx().format_shortcut(&OPEN_SHORTCUT);
-                if ui.add_enabled(!self.loading, theme::primary_button("Open statement…"))
-                    .on_hover_text(format!("Open another statement ({shortcut})"))
-                    .clicked()
-                {
-                    self.open_file_dialog(ui.ctx(), STATEMENT_FILES);
-                }
-                ui.menu_button("Export  ⏷", |ui| {
-                    ui.set_min_width(240.0);
-                    if ui.button("Saved split (.json)").on_hover_text("Import it later to carry on where you left off").clicked() {
-                        self.export_split();
-                    }
-                    if ui.button("Spreadsheet (.csv)").on_hover_text("Open in Excel, Numbers or Google Sheets").clicked() {
-                        self.export_csv();
-                    }
-                });
-                if ui.add_enabled(!self.loading, egui::Button::new("Import…").corner_radius(CornerRadius::same(255)))
-                    .on_hover_text("Open a split saved with Export")
-                    .clicked()
-                {
-                    self.open_file_dialog(ui.ctx(), SPLIT_FILES);
-                }
-                if ui.add(egui::Button::new("Close").corner_radius(CornerRadius::same(255))).clicked() {
-                    self.transactions.clear();
-                    self.file_name = None;
-                    self.filter.clear();
-                    self.category = None;
-                }
+                self.open_button(ui);
+                self.export_menu(ui);
+                self.import_button(ui);
+                self.close_button(ui);
             });
         });
+    }
+
+    fn open_button(&mut self, ui: &mut egui::Ui) {
+        let shortcut = ui.ctx().format_shortcut(&OPEN_SHORTCUT);
+        if ui.add_enabled(!self.loading, theme::primary_button("Open statement…"))
+            .on_hover_text(format!("Open another statement ({shortcut})"))
+            .clicked()
+        {
+            self.open_file_dialog(ui.ctx(), STATEMENT_FILES);
+        }
+    }
+
+    fn export_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("Export  ⏷", |ui| {
+            ui.set_min_width(240.0);
+            if ui.button("Saved split (.json)").on_hover_text("Import it later to carry on where you left off").clicked() {
+                self.export_split();
+            }
+            if ui.button("Spreadsheet (.csv)").on_hover_text("Open in Excel, Numbers or Google Sheets").clicked() {
+                self.export_csv();
+            }
+        });
+    }
+
+    fn import_button(&mut self, ui: &mut egui::Ui) {
+        if ui.add_enabled(!self.loading, egui::Button::new("Import…").corner_radius(CornerRadius::same(255)))
+            .on_hover_text("Open a split saved with Export")
+            .clicked()
+        {
+            self.open_file_dialog(ui.ctx(), SPLIT_FILES);
+        }
+    }
+
+    fn close_button(&mut self, ui: &mut egui::Ui) {
+        if ui.add(egui::Button::new("Close").corner_radius(CornerRadius::same(255))).clicked() {
+            self.transactions.clear();
+            self.file_name = None;
+            self.filter.clear();
+            self.category = None;
+        }
     }
 
     fn footer(ui: &mut egui::Ui) {
@@ -311,9 +354,13 @@ impl BillSplitApp {
     }
 
     /// A softly lit tile with a caption and a large serif figure.
-    fn summary_tile(ui: &mut egui::Ui, title: &str, value: String, color: Option<Color32>) {
+    /// On a phone, tiles are given an exact `width` so they line up two to a row.
+    fn summary_tile(ui: &mut egui::Ui, title: &str, value: String, color: Option<Color32>, width: Option<f32>) {
         theme::tile_frame().show(ui, |ui| {
-            ui.set_min_width(130.0);
+            match width {
+                Some(width) => ui.set_width(width),
+                None => ui.set_min_width(130.0),
+            }
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
                 ui.horizontal(|ui| {
@@ -324,7 +371,8 @@ impl BillSplitApp {
                     }
                     ui.label(theme::caption(title));
                 });
-                ui.label(theme::display(value, 30.0).color(color.unwrap_or(theme::GOLD_LIGHT)));
+                let size = if width.is_some() { 24.0 } else { 30.0 };
+                ui.label(theme::display(value, size).color(color.unwrap_or(theme::GOLD_LIGHT)));
             });
         });
     }
@@ -338,18 +386,22 @@ impl BillSplitApp {
             .sum();
 
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(12.0, 12.0);
-            Self::summary_tile(ui, "Transactions", self.transactions.len().to_string(), None);
-            Self::summary_tile(ui, "Total", format_money(total), None);
+            let gap = if is_compact(ui.ctx()) { 8.0 } else { 12.0 };
+            ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
+            // Two tiles per row on a phone, less the gap between them and each tile's margins and border.
+            let margins = theme::tile_frame().total_margin().sum().x;
+            let width = is_compact(ui.ctx()).then(|| ((ui.available_width() - gap) / 2.0 - margins).floor());
+            Self::summary_tile(ui, "Transactions", self.transactions.len().to_string(), None, width);
+            Self::summary_tile(ui, "Total", format_money(total), None, width);
             for (index, card) in cards.iter().enumerate() {
                 let card_total: f64 = self.transactions.iter()
                     .filter(|t| t.assigned_to.as_deref() == Some(card))
                     .map(|t| t.amount)
                     .sum();
-                Self::summary_tile(ui, &format!("Card •••• {card}"), format_money(card_total), Some(card_color(index)));
+                Self::summary_tile(ui, &format!("Card •••• {card}"), format_money(card_total), Some(card_color(index)), width);
             }
             if self.transactions.iter().any(|t| t.assigned_to.is_none()) {
-                Self::summary_tile(ui, "Unassigned", format_money(unassigned), Some(theme::WARN));
+                Self::summary_tile(ui, "Unassigned", format_money(unassigned), Some(theme::WARN), width);
             }
         });
     }
@@ -448,6 +500,10 @@ impl BillSplitApp {
 
     /// Filter box and buttons to (re)assign the transactions shown in bulk.
     fn toolbar(&mut self, ui: &mut egui::Ui, cards: &[String]) {
+        if is_compact(ui.ctx()) {
+            self.compact_toolbar(ui, cards);
+            return;
+        }
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut self.filter)
                 .hint_text("🔍  Filter by merchant, category, country…")
@@ -468,27 +524,7 @@ impl BillSplitApp {
             }
 
             ui.add_space(12.0);
-            ui.label(theme::caption("Assign shown to"));
-            for (index, card) in cards.iter().enumerate() {
-                let color = card_color(index);
-                let button = egui::Button::new(RichText::new(format!("•••• {card}")).strong().color(color))
-                    .fill(theme::alpha(color, 0x14))
-                    .stroke(Stroke::new(1.0, theme::alpha(color, 0x80)))
-                    .corner_radius(CornerRadius::same(255));
-                if ui.add(button).on_hover_text("Assign all transactions shown below to this card").clicked() {
-                    for i in self.visible() {
-                        self.transactions[i].assigned_to = Some(card.clone());
-                    }
-                }
-            }
-            if ui.add(egui::Button::new("Reset").corner_radius(CornerRadius::same(255)))
-                .on_hover_text("Assign every transaction back to the card it was made on")
-                .clicked()
-            {
-                for transaction in self.transactions.iter_mut() {
-                    transaction.assigned_to = Some(last_four(&transaction.card).to_string());
-                }
-            }
+            self.assign_buttons(ui, cards);
 
             if let Some(file_name) = &self.file_name {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -497,6 +533,62 @@ impl BillSplitApp {
                 });
             }
         });
+    }
+
+    /// The toolbar stacked for a phone: file name, a full-width filter box, then the assign buttons.
+    fn compact_toolbar(&mut self, ui: &mut egui::Ui, cards: &[String]) {
+        if let Some(file_name) = &self.file_name {
+            ui.add(egui::Label::new(RichText::new(file_name).family(theme::serif_italic()).size(17.0).color(theme::MUTED))
+                .truncate());
+        }
+        ui.horizontal(|ui| {
+            let clear_width = if self.filter.is_empty() { 0.0 } else { 36.0 };
+            ui.add(egui::TextEdit::singleline(&mut self.filter)
+                .hint_text("🔍  Filter by merchant, category…")
+                .margin(egui::Margin::symmetric(12, 8))
+                .desired_width(ui.available_width() - clear_width));
+            if !self.filter.is_empty() && ui.button("✖").on_hover_text("Clear filter").clicked() {
+                self.filter.clear();
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            if let Some(category) = self.category {
+                let color = category_color(category);
+                let chip = egui::Button::new(RichText::new(format!("{}  ✖", category.label())).color(color))
+                    .fill(theme::alpha(color, 0x1a))
+                    .stroke(Stroke::new(1.0, theme::alpha(color, 0x80)))
+                    .corner_radius(CornerRadius::same(255));
+                if ui.add(chip).on_hover_text("Show all categories").clicked() {
+                    self.category = None;
+                }
+            }
+            self.assign_buttons(ui, cards);
+        });
+    }
+
+    /// Buttons that assign every transaction shown to one card, plus one to undo all assignments.
+    fn assign_buttons(&mut self, ui: &mut egui::Ui, cards: &[String]) {
+        ui.label(theme::caption("Assign shown to"));
+        for (index, card) in cards.iter().enumerate() {
+            let color = card_color(index);
+            let button = egui::Button::new(RichText::new(format!("•••• {card}")).strong().color(color))
+                .fill(theme::alpha(color, 0x14))
+                .stroke(Stroke::new(1.0, theme::alpha(color, 0x80)))
+                .corner_radius(CornerRadius::same(255));
+            if ui.add(button).on_hover_text("Assign all transactions shown below to this card").clicked() {
+                for i in self.visible() {
+                    self.transactions[i].assigned_to = Some(card.clone());
+                }
+            }
+        }
+        if ui.add(egui::Button::new("Reset").corner_radius(CornerRadius::same(255)))
+            .on_hover_text("Assign every transaction back to the card it was made on")
+            .clicked()
+        {
+            for transaction in self.transactions.iter_mut() {
+                transaction.assigned_to = Some(last_four(&transaction.card).to_string());
+            }
+        }
     }
 
     /// One row per transaction, with a button per card to choose who pays for it.
@@ -542,15 +634,7 @@ impl BillSplitApp {
                     row.col(|ui| Self::merchant_cell(ui, merchant));
                     row.col(|ui| {
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let mut text = RichText::new(format!("{:.2}", transaction.amount)).monospace();
-                            text = if transaction.amount < 0.0 {
-                                text.color(theme::CREDIT)
-                            } else if transaction.amount >= LARGE_AMOUNT {
-                                text.color(theme::GOLD_LIGHT)
-                            } else {
-                                text.color(theme::BODY)
-                            };
-                            ui.label(text);
+                            ui.label(amount_text(transaction.amount));
                         });
                     });
                     row.col(|ui| {
@@ -561,25 +645,78 @@ impl BillSplitApp {
                     row.col(|ui| {
                         ui.spacing_mut().button_padding = egui::vec2(10.0, 2.0);
                         ui.spacing_mut().item_spacing.x = 6.0;
-                        for (index, card) in cards.iter().enumerate() {
-                            let selected = transaction.assigned_to.as_deref() == Some(card);
-                            let color = card_color(index);
-                            let chip = if selected {
-                                egui::Button::new(RichText::new(card).strong().color(color))
-                                    .fill(theme::alpha(color, 0x26))
-                                    .stroke(Stroke::new(1.0, theme::alpha(color, 0xb0)))
-                            } else {
-                                egui::Button::new(RichText::new(card).color(theme::FAINT))
-                                    .fill(Color32::TRANSPARENT)
-                                    .stroke(Stroke::new(1.0, theme::alpha(Color32::WHITE, 0x14)))
-                            };
-                            if ui.add(chip.corner_radius(CornerRadius::same(255))).clicked() {
-                                transaction.assigned_to = if selected { None } else { Some(card.clone()) };
-                            }
-                        }
+                        Self::assign_chips(ui, transaction, cards);
                     });
                 });
             });
+    }
+
+    /// A chip per card; the selected one pays for the transaction.
+    /// Clicking the selected card again leaves the transaction unassigned.
+    fn assign_chips(ui: &mut egui::Ui, transaction: &mut Transaction, cards: &[String]) {
+        for (index, card) in cards.iter().enumerate() {
+            let selected = transaction.assigned_to.as_deref() == Some(card);
+            let color = card_color(index);
+            let chip = if selected {
+                egui::Button::new(RichText::new(card).strong().color(color))
+                    .fill(theme::alpha(color, 0x26))
+                    .stroke(Stroke::new(1.0, theme::alpha(color, 0xb0)))
+            } else {
+                egui::Button::new(RichText::new(card).color(theme::FAINT))
+                    .fill(Color32::TRANSPARENT)
+                    .stroke(Stroke::new(1.0, theme::alpha(Color32::WHITE, 0x14)))
+            };
+            if ui.add(chip.corner_radius(CornerRadius::same(255))).clicked() {
+                transaction.assigned_to = if selected { None } else { Some(card.clone()) };
+            }
+        }
+    }
+
+    /// The table reflowed for a phone: each transaction is a small block with the merchant and
+    /// amount on top, its details underneath, and large card buttons to tap.
+    fn transaction_list(&mut self, ui: &mut egui::Ui, cards: &[String]) {
+        let visible = self.visible();
+        if visible.is_empty() {
+            ui.label(RichText::new("No transactions match the filter.").color(theme::FAINT));
+            return;
+        }
+        for (row, &index) in visible.iter().enumerate() {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), COMPACT_ROW_HEIGHT), egui::Sense::hover());
+            // Only the rows on screen are laid out, which keeps long statements fast.
+            if !ui.is_rect_visible(rect) {
+                continue;
+            }
+            if row % 2 == 1 {
+                ui.painter().rect_filled(rect, 10.0, ui.visuals().faint_bg_color);
+            }
+            let transaction = &mut self.transactions[index];
+            let merchant = &self.merchants[index];
+            ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink2(egui::vec2(10.0, 8.0))), |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                egui::Sides::new().shrink_left().truncate().show(ui,
+                    |ui| {
+                        ui.label(RichText::new(&merchant.name).family(theme::semibold()).size(14.5).color(theme::INK_BRIGHT))
+                            .on_hover_text(&transaction.description);
+                    },
+                    |ui| { ui.label(amount_text(transaction.amount).size(14.5)); },
+                );
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label(RichText::new(merchant.category.label()).size(11.5).color(category_color(merchant.category)));
+                    let mut details = format!("  ·  {}", transaction.date);
+                    if let Some(place) = &merchant.place {
+                        details.push_str(&format!("  ·  {place}"));
+                    }
+                    details.push_str(&format!("  ·  on •••• {}", last_four(&transaction.card)));
+                    ui.add(egui::Label::new(RichText::new(details).size(11.5).color(theme::FAINT)).truncate());
+                });
+                ui.horizontal(|ui| {
+                    // Larger than in the table, so they are easy to tap.
+                    ui.spacing_mut().button_padding = egui::vec2(16.0, 6.0);
+                    Self::assign_chips(ui, transaction, cards);
+                });
+            });
+        }
     }
 
     /// Merchant name on top; category, place and payment processor underneath.
@@ -604,15 +741,16 @@ impl BillSplitApp {
 
     /// Shown when no statement is open.
     fn empty_state(&mut self, ui: &mut egui::Ui) {
+        let compact = is_compact(ui.ctx());
         theme::paint_glow(ui.painter(), ui.max_rect());
         ui.vertical_centered(|ui| {
-            ui.add_space((ui.available_height() / 2.0 - 260.0).max(24.0));
+            ui.add_space((ui.available_height() / 2.0 - 260.0).max(if compact { 8.0 } else { 24.0 }));
             ui.label(theme::eyebrow("Split the bill"));
             ui.add_space(10.0);
-            ui.label(theme::display("Who spent what?", 56.0));
+            ui.label(theme::display("Who spent what?", if compact { 40.0 } else { 56.0 }));
             ui.label(RichText::new("Your credit card statement, card by card")
                 .family(theme::serif_italic())
-                .size(22.0)
+                .size(if compact { 18.0 } else { 22.0 })
                 .color(Color32::from_rgb(0xe9, 0xd7, 0xb0)));
             ui.add_space(14.0);
             theme::flourish(ui);
@@ -697,6 +835,18 @@ fn matches(filter: &str, transaction: &Transaction, merchant: &Merchant) -> bool
         || transaction.card.contains(&filter)
 }
 
+/// An amount in the table: green for credits, highlighted when large.
+fn amount_text(amount: f64) -> RichText {
+    let text = RichText::new(format!("{amount:.2}")).monospace();
+    if amount < 0.0 {
+        text.color(theme::CREDIT)
+    } else if amount >= LARGE_AMOUNT {
+        text.color(theme::GOLD_LIGHT)
+    } else {
+        text.color(theme::BODY)
+    }
+}
+
 /// Formats an amount as "$1234.56" or "-$1234.56".
 fn format_money(amount: f64) -> String {
     let sign = if amount < 0.0 { "-" } else { "" };
@@ -758,19 +908,22 @@ impl eframe::App for BillSplitApp {
             self.open_file_dialog(ui.ctx(), STATEMENT_FILES);
         }
 
+        // Narrower margins on a phone, where every point of width counts.
+        let compact = is_compact(ui.ctx());
+        let gutter = if compact { 12 } else { 24 };
         let top = egui::Panel::top("top_panel")
-            .frame(egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::symmetric(24, 12)))
+            .frame(egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::symmetric(gutter, 12)))
             .show(ui, |ui| self.header(ui));
         let rule = top.response.rect;
         theme::paint_rule(ui.painter(), rule.left(), rule.right(), rule.bottom(), theme::alpha(theme::GOLD, 0x8c));
         egui::Panel::bottom("bottom_panel")
-            .frame(egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::symmetric(24, 8)))
+            .frame(egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::symmetric(gutter, 8)))
             .show(ui, Self::footer);
 
         let cards = self.cards();
         self.identify_merchants();
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::NAVY).inner_margin(egui::Margin::symmetric(24, 18)))
+            .frame(egui::Frame::new().fill(theme::NAVY).inner_margin(egui::Margin::symmetric(gutter, 18)))
             .show(ui, |ui| {
                 if self.loading {
                     ui.horizontal(|ui| {
@@ -785,8 +938,26 @@ impl eframe::App for BillSplitApp {
 
                 if self.transactions.is_empty() {
                     if !self.loading {
-                        self.empty_state(ui);
+                        if compact {
+                            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.empty_state(ui));
+                        } else {
+                            self.empty_state(ui);
+                        }
                     }
+                    return;
+                }
+
+                // On a phone the table is too wide, so everything scrolls together as one list instead.
+                if compact {
+                    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                        self.summary(ui, &cards);
+                        ui.add_space(4.0);
+                        self.categories(ui, &cards);
+                        ui.add_space(4.0);
+                        self.toolbar(ui, &cards);
+                        ui.add_space(4.0);
+                        theme::card_frame().inner_margin(egui::Margin::same(4)).show(ui, |ui| self.transaction_list(ui, &cards));
+                    });
                     return;
                 }
 
