@@ -385,23 +385,35 @@ impl BillSplitApp {
             .map(|t| t.amount)
             .sum();
 
+        let mut tiles = vec![
+            ("Transactions".to_string(), self.transactions.len().to_string(), None),
+            ("Total".to_string(), format_money(total), None),
+        ];
+        for (index, card) in cards.iter().enumerate() {
+            let card_total: f64 = self.transactions.iter()
+                .filter(|t| t.assigned_to.as_deref() == Some(card))
+                .map(|t| t.amount)
+                .sum();
+            tiles.push((format!("Card •••• {card}"), format_money(card_total), Some(card_color(index))));
+        }
+        if self.transactions.iter().any(|t| t.assigned_to.is_none()) {
+            tiles.push(("Unassigned".to_string(), format_money(unassigned), Some(theme::WARN)));
+        }
+
         ui.horizontal_wrapped(|ui| {
-            let gap = if is_compact(ui.ctx()) { 8.0 } else { 12.0 };
+            let compact = is_compact(ui.ctx());
+            let gap = if compact { 8.0 } else { 12.0 };
             ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
             // Two tiles per row on a phone, less the gap between them and each tile's margins and border.
             let margins = theme::tile_frame().total_margin().sum().x;
-            let width = is_compact(ui.ctx()).then(|| ((ui.available_width() - gap) / 2.0 - margins).floor());
-            Self::summary_tile(ui, "Transactions", self.transactions.len().to_string(), None, width);
-            Self::summary_tile(ui, "Total", format_money(total), None, width);
-            for (index, card) in cards.iter().enumerate() {
-                let card_total: f64 = self.transactions.iter()
-                    .filter(|t| t.assigned_to.as_deref() == Some(card))
-                    .map(|t| t.amount)
-                    .sum();
-                Self::summary_tile(ui, &format!("Card •••• {card}"), format_money(card_total), Some(card_color(index)), width);
-            }
-            if self.transactions.iter().any(|t| t.assigned_to.is_none()) {
-                Self::summary_tile(ui, "Unassigned", format_money(unassigned), Some(theme::WARN), width);
+            let width = compact.then(|| ((ui.available_width() - gap) / 2.0 - margins).floor());
+            for (index, (title, value, color)) in tiles.into_iter().enumerate() {
+                // A frame's width isn't known until it's drawn, so the row won't wrap before it;
+                // start each new pair on its own row rather than letting it run off the screen.
+                if compact && index > 0 && index % 2 == 0 {
+                    ui.end_row();
+                }
+                Self::summary_tile(ui, &title, value, color, width);
             }
         });
     }
